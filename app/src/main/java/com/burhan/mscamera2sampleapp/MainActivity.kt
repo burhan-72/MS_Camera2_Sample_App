@@ -4,14 +4,14 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
+import android.graphics.Point
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
+import android.hardware.camera2.params.ExtensionSessionConfiguration
 import android.media.ImageReader
 import android.net.Uri
-import android.os.Bundle
-import android.os.Environment
-import android.os.Handler
-import android.os.HandlerThread
+import android.os.*
+import android.os.Build.VERSION
 import android.util.Log
 import android.util.Size
 import android.util.SparseIntArray
@@ -19,35 +19,52 @@ import android.view.Surface
 import android.view.TextureView
 import android.widget.ImageButton
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.burhan.mscamera2sampleapp.databinding.ActivityMainBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.lang.Math.abs
+import java.lang.Math.max
 import java.util.*
 import java.util.Arrays.asList
+import java.util.stream.Collectors
+import android.hardware.camera2.params.OutputConfiguration as OutputConfiguration1
 
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+
     private var textureView : TextureView? = null
     private var takePhotoBtn : ImageButton? = null
+
     private var cameraDevice : CameraDevice? = null
     private var cameraId : String? = null
+
     private var backgroundHandler : Handler? = null
     private var backgroundHandlerThread : HandlerThread? = null
+
     private var ORIENTATIONS : SparseIntArray? = null
+
     private var captureRequestBuilder : CaptureRequest.Builder? = null
     private var previewCaptureSession : CameraCaptureSession? = null
-    private var imageReader : ImageReader? = null
 
+    private var imageReader : ImageReader? = null
 
     private val STATE_PEEVIEW = 0
     private val STATE_WAIT_LOCK = 1
     private var captureState = STATE_PEEVIEW
 
+    private var currentExtension = -1
+    private var currentExtensionIdx = -1
+
+    private lateinit var cameraExtensionSession: CameraExtensionSession
+    private lateinit var extensionCharacteristics: CameraExtensionCharacteristics
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,6 +81,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+    This callback gives us a notification when we are ready to prepare for the camera device initialization.
+     */
     private val surfaceTextureListener = object : TextureView.SurfaceTextureListener {
 
         override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
@@ -79,12 +99,15 @@ class MainActivity : AppCompatActivity() {
         override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
     }
 
+
+    /**
+    This is used to check a camera device state. It is required to open a camera.
+     */
     private val cameraStateCallback = object : CameraDevice.StateCallback() {
 
         override fun onOpened(camera: CameraDevice) {
             cameraDevice = camera
             startPreview()
-//            Toast.makeText(this@MainActivity,"Camera Connection made!!",Toast.LENGTH_SHORT).show()
         }
 
         override fun onError(camera: CameraDevice, p1: Int) {
@@ -95,11 +118,7 @@ class MainActivity : AppCompatActivity() {
 
         override fun onDisconnected(camera: CameraDevice) {
             camera.close()
-            Toast.makeText(
-                this@MainActivity,
-                "Camera Connection Disconnected!!",
-                Toast.LENGTH_SHORT
-            ).show()
+            Toast.makeText(this@MainActivity,"Camera Connection Disconnected!!",Toast.LENGTH_SHORT).show()
             cameraDevice = null
         }
 
@@ -109,6 +128,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    /**
+    A callback for configuring capture sessions from a camera.
+    This is needed to check if the camera session is configured and ready to show a preview.
+     */
     private val captureStateCallback = object : CameraCaptureSession.StateCallback() {
 
         override fun onConfigured(captureSession: CameraCaptureSession) {
@@ -124,8 +148,81 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val onImageAvailableListener =
-        ImageReader.OnImageAvailableListener { reader ->
+
+    /**
+    This callback manages captured sessions.
+    Whenever a focus or a still picture is requested from a user,
+    CameraCaptureSession returns callbacks through this callback.
+     */
+    private val previewCaptureCallbacks = object : CameraCaptureSession.CaptureCallback(){
+
+        private  fun process(captureResult: CaptureResult){
+            when(captureState){
+                STATE_PEEVIEW -> {
+                }
+                STATE_WAIT_LOCK -> {
+                    captureState = STATE_PEEVIEW
+                    val afState = captureResult.get(CaptureResult.CONTROL_AF_STATE)
+                    if (afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED) {
+                        startStillCaptureRequest()
+                    }
+                }
+            }
+        }
+
+        override fun onCaptureCompleted(
+                session: CameraCaptureSession,
+                request: CaptureRequest,
+                result: TotalCaptureResult
+        ) {
+            super.onCaptureCompleted(session, request, result)
+            process(result)
+        }
+    }
+
+//    private val captureExtensionCallbacks = @RequiresApi(31)
+//        object : CameraExtensionSession.ExtensionCaptureCallback(){
+//        override fun onCaptureStarted(session: CameraExtensionSession, request: CaptureRequest, timestamp: Long) {
+//            super.onCaptureStarted(session, request, timestamp)
+//        }
+//
+//        override fun onCaptureFailed(session: CameraExtensionSession, request: CaptureRequest) {
+//            super.onCaptureFailed(session, request)
+//        }
+//    }
+
+//    private val extensionSessionStateCallback = @RequiresApi(31)
+//        object : CameraExtensionSession.StateCallback(){
+//        override fun onConfigured(session: CameraExtensionSession) {
+//            cameraExtensionSession = session
+//            val surfaceTexture = textureView?.surfaceTexture
+//            val width = textureView?.width
+//            val height = textureView?.height
+//            surfaceTexture?.setDefaultBufferSize(textureView!!.width, textureView!!.height)
+//            val previewSurface = Surface(surfaceTexture)
+//
+//            try{
+//                val captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+//                captureRequestBuilder?.addTarget(previewSurface)
+//                val captureRequest = captureRequestBuilder?.build()
+//
+//                cameraExtensionSession.setRepeatingRequest(captureRequest!!, mainExecutor, captureExtensionCallbacks)
+//
+//            }catch(e : CameraAccessException){
+//
+//            }
+//        }
+//
+//        override fun onConfigureFailed(session: CameraExtensionSession) {
+//        }
+//    }
+
+
+    /**
+    This callback returns an image when CameraCaptureSession completes capture.
+    We need to set this against ImageReader before capturing a still picture.
+     */
+    private val onImageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
             if (reader != null) {
                 val status = Environment.getExternalStorageState()
                 if (status != Environment.MEDIA_MOUNTED) {
@@ -136,7 +233,7 @@ class MainActivity : AppCompatActivity() {
                     ).show()
                     finish()
                 }
-                val filePath: File = File(Environment.DIRECTORY_PICTURES).absoluteFile
+                val filePath: File = File(Environment.DIRECTORY_PICTURES)
                 val dir = File(filePath.absolutePath + "/MSCamera2SampleApp")
 
                 if(!(dir.exists())){
@@ -164,61 +261,44 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    private val previewCaptureCallbacks = object : CameraCaptureSession.CaptureCallback(){
 
-            private  fun process(captureResult: CaptureResult){
-                when(captureState){
-                    STATE_PEEVIEW -> {
-                    }
-                    STATE_WAIT_LOCK -> {
-                        captureState = STATE_PEEVIEW
-                        val afState = captureResult.get(CaptureResult.CONTROL_AF_STATE)
-                        if (afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED) {
-                            startStillCaptureRequest()
-                        }
-                    }
-                }
-            }
-
-            override fun onCaptureCompleted(
-                session: CameraCaptureSession,
-                request: CaptureRequest,
-                result: TotalCaptureResult
-            ) {
-                super.onCaptureCompleted(session, request, result)
-                process(result)
-            }
-        }
-
+    /**
+    This method setup the camera by selecting the cameraDevice as per the useCase.
+     */
     private fun setupCamera(width: Int, height: Int){
         val cameraManager : CameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         for(cameraid : String in cameraManager.cameraIdList){
-            val cameraCharacteristic = cameraManager.getCameraCharacteristics(cameraid)
-            if(cameraCharacteristic.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT){
+            val cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraid)
+            if(cameraCharacteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT){
                 continue
             }
 
             cameraId = cameraid
-            val jpegSize : Array<Size>? =  cameraCharacteristic.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)?.getOutputSizes(
+            val jpegSize : Array<Size>? =  cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)?.getOutputSizes(
                 ImageFormat.JPEG
             )
 
             var currWidth = width
             var currHeight = height
 
-            if(jpegSize != null && jpegSize.size > 0){
-                currWidth = jpegSize[0].width
-                currHeight = jpegSize[0].height
+            if (jpegSize != null) {
+                for (size in jpegSize){
+                    currWidth = max(currWidth, size.width)
+                    currHeight = max(currHeight, size.height)
 
+                }
             }
-            imageReader = ImageReader.newInstance(currWidth, currHeight, ImageFormat.JPEG, 1)
+
+            imageReader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1)
             imageReader!!.setOnImageAvailableListener(onImageAvailableListener, backgroundHandler)
-
-
             return
         }
     }
 
+    
+    /**
+    This method check the camera permission and if granted open the camera.
+     */
     private fun connectCamera(){
         val cameraManager : CameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         if (ActivityCompat.checkSelfPermission(
@@ -237,6 +317,10 @@ class MainActivity : AppCompatActivity() {
         cameraManager.openCamera(cameraId!!, cameraStateCallback, backgroundHandler)
     }
 
+
+    /**
+    This method start the preview after the camera device is opened.
+     */
     private fun startPreview(){
         val surfaceTexture = textureView?.surfaceTexture
         surfaceTexture?.setDefaultBufferSize(textureView!!.width, textureView!!.height)
@@ -251,8 +335,24 @@ class MainActivity : AppCompatActivity() {
             backgroundHandler
         )
 
+//        val outputConfig = asList(
+//                OutputConfiguration1(imageReader?.surface!!),
+//                OutputConfiguration1(previewSurface)
+//        )
+//        val extensionConfiguration = ExtensionSessionConfiguration(
+//                CameraExtensionCharacteristics.EXTENSION_BOKEH,
+//                outputConfig,
+//                mainExecutor,
+//                extensionSessionStateCallback
+//        )
+//        cameraDevice?.createExtensionSession(extensionConfiguration)
+
     }
 
+
+    /**
+    This method will start the still capture request.
+     */
     private fun startStillCaptureRequest(){
         captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
         captureRequestBuilder?.addTarget(imageReader?.surface!!)
@@ -274,7 +374,7 @@ class MainActivity : AppCompatActivity() {
         cameraDevice?.close()
         cameraDevice = null
     }
-
+    
     override protected fun onResume() {
         super.onResume()
         startBackgroundThread()
@@ -293,11 +393,7 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
     }
 
-    private fun sensorToDeviceOrientation(
-        cameraCharacteristics: CameraCharacteristics,
-        deviceOrientation: Int
-    ) : Int
-    {
+    private fun sensorToDeviceOrientation(cameraCharacteristics: CameraCharacteristics, deviceOrientation: Int) : Int{
         ORIENTATIONS?.append(Surface.ROTATION_0, 0)
         ORIENTATIONS?.append(Surface.ROTATION_90, 90)
         ORIENTATIONS?.append(Surface.ROTATION_180, 180)
@@ -310,7 +406,6 @@ class MainActivity : AppCompatActivity() {
             return (sensorOrientation.toInt() + deviceCurrOrientation.toInt() + 360) % 360
         }
         return 0
-
     }
 
     private fun startBackgroundThread() {
@@ -331,6 +426,9 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    /**
+    This method will lock teh focus and invoke previewCaptureSession, when takePhoto button is clicked.
+     */
     private fun lockFocus(){
         captureState = STATE_WAIT_LOCK
         captureRequestBuilder?.set(
@@ -344,6 +442,10 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    
+    /**
+    This method will check the requested permission are granted or not.
+     */
     private fun allPermissionGranted(): Boolean {
         for (permission in Constants.REQUIRED_PERMISSION) {
             if (ActivityCompat.checkSelfPermission(
@@ -372,8 +474,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    object Constants {
-        const val TAG = "cameraX"
+    companion object Constants {
+        const val TAG = "camera2"
         const val FILE_NAME_FORMAT = "yy-MM-dd-HH-mm-ss-sss"
         const val REQUEST_CODE_PERMISSIONS = 123
         val REQUIRED_PERMISSION = arrayOf(
