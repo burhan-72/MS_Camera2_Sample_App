@@ -1,11 +1,10 @@
 package com.burhan.mscamera2sampleapp
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.ImageFormat
-import android.graphics.Point
-import android.graphics.SurfaceTexture
+import android.graphics.*
 import android.hardware.camera2.*
 import android.hardware.camera2.params.ExtensionSessionConfiguration
 import android.media.ImageReader
@@ -15,8 +14,7 @@ import android.os.Build.VERSION
 import android.util.Log
 import android.util.Size
 import android.util.SparseIntArray
-import android.view.Surface
-import android.view.TextureView
+import android.view.*
 import android.widget.ImageButton
 import android.widget.Toast
 import androidx.annotation.RequiresApi
@@ -50,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private var backgroundHandlerThread : HandlerThread? = null
 
     private var ORIENTATIONS : SparseIntArray? = null
+    private lateinit var previewSize : Size
 
     private var captureRequestBuilder : CaptureRequest.Builder? = null
     private var previewCaptureSession : CameraCaptureSession? = null
@@ -66,6 +65,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cameraExtensionSession: CameraExtensionSession
     private lateinit var extensionCharacteristics: CameraExtensionCharacteristics
 
+    private var orientations : SparseIntArray = SparseIntArray(4).apply {
+        append(Surface.ROTATION_0, 0)
+        append(Surface.ROTATION_90, 90)
+        append(Surface.ROTATION_180, 180)
+        append(Surface.ROTATION_270, 270)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,6 +78,30 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         textureView = binding.viewFinder
         takePhotoBtn = binding.takePhotoBtn
+
+        supportActionBar?.hide()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.let {
+                it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                window.navigationBarColor = getColor(R.color.white)
+
+                it.hide(WindowInsets.Type.systemBars())
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                    // Do not let system steal touches for showing the navigation bar
+                    View.SYSTEM_UI_FLAG_IMMERSIVE
+                            // Hide the nav bar and status bar
+                            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_FULLSCREEN
+                            // Keep the app content behind the bars even if user swipes them up
+                            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN)
+
+//            @Suppress("DEPRECATION")
+//            window.addFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
+        }
 
         setContentView(binding.root)
 
@@ -88,10 +117,13 @@ class MainActivity : AppCompatActivity() {
 
         override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
             setupCamera(width, height)
+            transformImage(width, height)
             connectCamera()
         }
         override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
-
+            setupCamera(width, height)
+            transformImage(width, height)
+            connectCamera()
         }
         override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
             return false
@@ -114,17 +146,20 @@ class MainActivity : AppCompatActivity() {
             camera.close()
             Toast.makeText(this@MainActivity, "Camera Connection Error!!", Toast.LENGTH_SHORT).show()
             cameraDevice = null
+            finish()
         }
 
         override fun onDisconnected(camera: CameraDevice) {
             camera.close()
             Toast.makeText(this@MainActivity,"Camera Connection Disconnected!!",Toast.LENGTH_SHORT).show()
             cameraDevice = null
+            finish()
         }
 
         override fun onClosed(camera: CameraDevice) {
             super.onClosed(camera)
             Toast.makeText(this@MainActivity, "Camera Connection Closed!!", Toast.LENGTH_SHORT).show()
+            finish()
         }
     }
 
@@ -269,27 +304,29 @@ class MainActivity : AppCompatActivity() {
         val cameraManager : CameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         for(cameraid : String in cameraManager.cameraIdList){
             val cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraid)
-            if(cameraCharacteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT){
+            if(cameraCharacteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK){
                 continue
             }
-
+            previewSize = cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!
+                    .getOutputSizes(ImageFormat.JPEG).maxByOrNull { it.height * it.width }!!
             cameraId = cameraid
-            val jpegSize : Array<Size>? =  cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)?.getOutputSizes(
-                ImageFormat.JPEG
-            )
 
-            var currWidth = width
-            var currHeight = height
+//            val jpegSize : Array<Size>? =  cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)?.getOutputSizes(
+//                ImageFormat.JPEG
+//            )
 
-            if (jpegSize != null) {
-                for (size in jpegSize){
-                    currWidth = max(currWidth, size.width)
-                    currHeight = max(currHeight, size.height)
+//            var currWidth = width
+//            var currHeight = height
+//
+//            if (jpegSize != null) {
+//                for (size in jpegSize){
+//                    currWidth = max(currWidth, size.width)
+//                    currHeight = max(currHeight, size.height)
+//
+//                }
+//            }
 
-                }
-            }
-
-            imageReader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1)
+            imageReader = ImageReader.newInstance(previewSize.width, previewSize.height, ImageFormat.JPEG, 1)
             imageReader!!.setOnImageAvailableListener(onImageAvailableListener, backgroundHandler)
             return
         }
@@ -323,7 +360,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun startPreview(){
         val surfaceTexture = textureView?.surfaceTexture
-        surfaceTexture?.setDefaultBufferSize(textureView!!.width, textureView!!.height)
+        surfaceTexture?.setDefaultBufferSize(previewSize.width, previewSize.height)
         val previewSurface = Surface(surfaceTexture)
 
         captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
@@ -354,8 +391,11 @@ class MainActivity : AppCompatActivity() {
     This method will start the still capture request.
      */
     private fun startStillCaptureRequest(){
+
         captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
         captureRequestBuilder?.addTarget(imageReader?.surface!!)
+        val rotation = windowManager.defaultDisplay.rotation
+        captureRequestBuilder!!.set(CaptureRequest.JPEG_ORIENTATION, orientations.get(rotation))
 
         val stillCaptureCallback =
             object : CameraCaptureSession.CaptureCallback(){
@@ -370,6 +410,31 @@ class MainActivity : AppCompatActivity() {
         previewCaptureSession?.capture(captureRequestBuilder!!.build(), stillCaptureCallback, null)
     }
 
+    private fun transformImage(width: Int, height: Int){
+        if(textureView == null || previewSize == null)return
+
+        var matrix : Matrix = Matrix()
+        val rotation = windowManager.defaultDisplay.rotation
+
+        val textureRectF : RectF = RectF(0F, 0F, width.toFloat(), height.toFloat())
+        val previewRectF : RectF = RectF(0F, 0F, previewSize.width.toFloat(), previewSize.height.toFloat())
+
+        val centerX = textureRectF.centerX()
+        val centerY = textureRectF.centerY()
+
+        if(rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270){
+            previewRectF.offset(centerX - previewRectF.centerX(), centerY - previewRectF.centerY())
+            matrix.setRectToRect(textureRectF, previewRectF, Matrix.ScaleToFit.FILL)
+
+            val scale = Math.max(width.toFloat() / previewSize.width, height.toFloat() / previewSize.height)
+
+            matrix.postScale(scale, scale, centerX,centerY)
+            matrix.postRotate(90F*(rotation-2), centerX, centerY)
+
+        }
+        textureView!!.setTransform(matrix)
+    }
+
     private fun closeCamera(){
         cameraDevice?.close()
         cameraDevice = null
@@ -381,6 +446,7 @@ class MainActivity : AppCompatActivity() {
 
         if(textureView?.isAvailable == true){
             setupCamera(textureView!!.width, textureView!!.height)
+            transformImage(textureView!!.width, textureView!!.height)
             connectCamera()
         }else{
             textureView?.surfaceTextureListener = surfaceTextureListener
@@ -482,6 +548,5 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.CAMERA,
             Manifest.permission.READ_EXTERNAL_STORAGE
         )
-
     }
 }
