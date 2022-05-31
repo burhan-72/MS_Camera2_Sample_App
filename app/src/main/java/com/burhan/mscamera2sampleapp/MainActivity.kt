@@ -40,6 +40,8 @@ class MainActivity : AppCompatActivity() {
 
     private var textureView : TextureView? = null
     private var takePhotoBtn : ImageButton? = null
+    private var rotateCamera : ImageButton? = null
+    private var lensFacing = CameraCharacteristics.LENS_FACING_BACK
 
     private var cameraDevice : CameraDevice? = null
     private var cameraId : String? = null
@@ -78,6 +80,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         textureView = binding.viewFinder
         takePhotoBtn = binding.takePhotoBtn
+        rotateCamera = binding.rotateCamera
 
         supportActionBar?.hide()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -108,6 +111,11 @@ class MainActivity : AppCompatActivity() {
         takePhotoBtn!!.setOnClickListener(){
             lockFocus()
         }
+
+        rotateCamera!!.setOnClickListener(){
+            rotateLens()
+        }
+
     }
 
     /**
@@ -146,20 +154,18 @@ class MainActivity : AppCompatActivity() {
             camera.close()
             Toast.makeText(this@MainActivity, "Camera Connection Error!!", Toast.LENGTH_SHORT).show()
             cameraDevice = null
-            finish()
         }
 
         override fun onDisconnected(camera: CameraDevice) {
             camera.close()
             Toast.makeText(this@MainActivity,"Camera Connection Disconnected!!",Toast.LENGTH_SHORT).show()
             cameraDevice = null
-            finish()
         }
 
         override fun onClosed(camera: CameraDevice) {
             super.onClosed(camera)
-            Toast.makeText(this@MainActivity, "Camera Connection Closed!!", Toast.LENGTH_SHORT).show()
-            finish()
+//            Toast.makeText(this@MainActivity, "Camera Connection Closed!!", Toast.LENGTH_SHORT).show()
+
         }
     }
 
@@ -304,7 +310,7 @@ class MainActivity : AppCompatActivity() {
         val cameraManager : CameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         for(cameraid : String in cameraManager.cameraIdList){
             val cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraid)
-            if(cameraCharacteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK){
+            if(cameraCharacteristics.get(CameraCharacteristics.LENS_FACING) != lensFacing){
                 continue
             }
             previewSize = cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!
@@ -435,6 +441,25 @@ class MainActivity : AppCompatActivity() {
         textureView!!.setTransform(matrix)
     }
 
+    private fun rotateLens(){
+
+        cameraDevice!!.close()
+        stopBackgroundThread()
+
+        cameraDevice = null
+        cameraId = null
+
+
+        if(lensFacing == CameraCharacteristics.LENS_FACING_BACK){
+            lensFacing = CameraCharacteristics.LENS_FACING_FRONT
+        }else{
+            lensFacing = CameraCharacteristics.LENS_FACING_BACK
+        }
+        startBackgroundThread()
+        setupCamera(textureView!!.width, textureView!!.height)
+        connectCamera()
+    }
+
     private fun closeCamera(){
         cameraDevice?.close()
         cameraDevice = null
@@ -481,7 +506,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopBackgroundThread(){
-        backgroundHandlerThread?.interrupt()
+        backgroundHandlerThread?.quitSafely()
         try{
             backgroundHandlerThread?.join()
             backgroundHandlerThread = null
