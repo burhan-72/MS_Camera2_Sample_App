@@ -6,13 +6,15 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <TextureView
+    <com.burhan.mscamera2sampleapp.AutoFitTextureView
         android:id="@+id/viewFinder"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        tools:layout_editor_absoluteX="-98dp" />
+        tools:layout_editor_absoluteX="-98dp">
+
+    </com.burhan.mscamera2sampleapp.AutoFitTextureView>
 
     <ImageButton
         android:id="@+id/takePhotoBtn"
