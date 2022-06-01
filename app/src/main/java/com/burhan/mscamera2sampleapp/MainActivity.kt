@@ -59,6 +59,8 @@ class MainActivity : AppCompatActivity() {
     private val STATE_WAIT_LOCK = 1
     private var captureState = STATE_PEEVIEW
 
+    private lateinit var file : File
+
     private var currentExtension = -1
     private var currentExtensionIdx = -1
 
@@ -103,6 +105,8 @@ class MainActivity : AppCompatActivity() {
 //            @Suppress("DEPRECATION")
 //            window.addFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
         }
+
+        file = File(getExternalFilesDir(null), FILE_NAME_FORMAT)
 
         setContentView(binding.root)
 
@@ -198,18 +202,19 @@ class MainActivity : AppCompatActivity() {
 
         override fun onOpened(camera: CameraDevice) {
             cameraDevice = camera
+            Toast.makeText(this@MainActivity, "Camera Connection Established!!", Toast.LENGTH_SHORT).show()
             startPreview()
         }
 
         override fun onError(camera: CameraDevice, p1: Int) {
             camera.close()
-            Toast.makeText(this@MainActivity, "Camera Connection Error!!", Toast.LENGTH_SHORT).show()
+//            Toast.makeText(this@MainActivity, "Camera Connection Error!!", Toast.LENGTH_SHORT).show()
             cameraDevice = null
         }
 
         override fun onDisconnected(camera: CameraDevice) {
             camera.close()
-            Toast.makeText(this@MainActivity, "Camera Connection Disconnected!!", Toast.LENGTH_SHORT).show()
+//            Toast.makeText(this@MainActivity, "Camera Connection Disconnected!!", Toast.LENGTH_SHORT).show()
             cameraDevice = null
         }
 
@@ -229,7 +234,9 @@ class MainActivity : AppCompatActivity() {
 
         override fun onConfigured(captureSession: CameraCaptureSession) {
             previewCaptureSession = captureSession
+
             try {
+
                 previewCaptureSession?.setRepeatingRequest(
                         captureRequestBuilder?.build()!!,
                         null,
@@ -284,43 +291,7 @@ class MainActivity : AppCompatActivity() {
     We need to set this against ImageReader before capturing a still picture.
      */
     private val onImageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
-            if (reader != null) {
-                val status = Environment.getExternalStorageState()
-                if (status != Environment.MEDIA_MOUNTED) {
-                    Toast.makeText(
-                            applicationContext,
-                            "your SD card is not available",
-                            Toast.LENGTH_SHORT
-                    ).show()
-                    finish()
-                }
-                val filePath: File = File(Environment.DIRECTORY_PICTURES)
-                val dir = File(filePath.absolutePath + "/MSCamera2SampleApp")
-
-                if(!(dir.exists())){
-                    dir.mkdir()
-                }
-
-                val image = reader.acquireNextImage()
-                val buffer = image.planes[0].buffer
-                val data = ByteArray(buffer.remaining())
-                buffer.get(data)
-                image.close()
-
-                val picturePath = System.currentTimeMillis().toString() + ".jpg"
-                val imgFile = File(dir, picturePath)
-                val uri: Uri = Uri.fromFile(imgFile)
-                try {
-                    val fileOutputStream: FileOutputStream = FileOutputStream(imgFile)
-                    fileOutputStream.write(data)
-                    fileOutputStream.close()
-                    Toast.makeText(this, "Photo saved!!", Toast.LENGTH_SHORT).show()
-                } catch (e: IOException) {
-                    Toast.makeText(this, "Error in saving!!", Toast.LENGTH_SHORT).show()
-                    Log.e("Image Saving", "Error while saving Image: $e")
-                    e.printStackTrace()
-                }
-            }
+            backgroundHandler?.post(ImageSaver(reader.acquireNextImage(), file))
         }
 
 
@@ -635,7 +606,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object Constants {
         const val TAG = "camera2"
-        const val FILE_NAME_FORMAT = "yy-MM-dd-HH-mm-ss-sss"
+        const val FILE_NAME_FORMAT = "yy-MM-dd-HH-mm-ss-ss.jpg"
         const val REQUEST_CODE_PERMISSIONS = 123
         val REQUIRED_PERMISSION = arrayOf(
                 Manifest.permission.CAMERA,
