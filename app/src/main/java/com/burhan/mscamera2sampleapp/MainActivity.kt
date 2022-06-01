@@ -106,7 +106,6 @@ class MainActivity : AppCompatActivity() {
 //            window.addFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
         }
 
-        file = File(getExternalFilesDir(null), FILE_NAME_FORMAT)
 
         setContentView(binding.root)
 
@@ -236,7 +235,6 @@ class MainActivity : AppCompatActivity() {
             previewCaptureSession = captureSession
 
             try {
-
                 previewCaptureSession?.setRepeatingRequest(
                         captureRequestBuilder?.build()!!,
                         null,
@@ -291,6 +289,11 @@ class MainActivity : AppCompatActivity() {
     We need to set this against ImageReader before capturing a still picture.
      */
     private val onImageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
+            val fileNameFormat =  System.currentTimeMillis().toString() + ".jpg"
+            val filePath = getExternalFilesDir(null)
+            val filepath2 = Environment.DIRECTORY_PICTURES
+
+            file = File(filePath, fileNameFormat)
             backgroundHandler?.post(ImageSaver(reader.acquireNextImage(), file))
         }
 
@@ -606,7 +609,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object Constants {
         const val TAG = "camera2"
-        const val FILE_NAME_FORMAT = "yy-MM-dd-HH-mm-ss-ss.jpg"
         const val REQUEST_CODE_PERMISSIONS = 123
         val REQUIRED_PERMISSION = arrayOf(
                 Manifest.permission.CAMERA,
