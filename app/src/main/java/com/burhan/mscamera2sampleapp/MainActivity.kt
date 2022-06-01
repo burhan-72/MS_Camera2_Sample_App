@@ -104,7 +104,7 @@ class MainActivity : AppCompatActivity() {
 //            window.addFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
         }
 
-        setContentView(R.layout.activity_main)
+        setContentView(binding.root)
 
         startOtherFunctionality()
     }
@@ -119,54 +119,54 @@ class MainActivity : AppCompatActivity() {
             rotateLens()
         }
 
-        textureView!!.setOnTouchListener { v, event ->
-
-            val pointerId = event.getPointerId(0)
-            val pointerIndex = event.findPointerIndex(pointerId)
-            // Get the pointer's current position
-            // Get the pointer's current position
-            val x = event.getX(pointerIndex)
-            val y = event.getY(pointerIndex)
-
-            val touchRect = Rect(
-                    (x - 100).toInt(),
-                    (y - 100).toInt(),
-                    (x + 100).toInt(),
-                    (y + 100).toInt())
-
-            if(cameraId != null){
-                val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
-                val cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraId!!)
-                val focusArea = MeteringRectangle(touchRect, MeteringRectangle.METERING_WEIGHT_DONT_CARE)
-
-                captureRequestBuilder?.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL)
-                try {
-                    previewCaptureSession?.capture(captureRequestBuilder?.build()!!, previewCaptureCallbacks,
-                            backgroundHandler)
-                    // After this, the camera will go back to the normal state of preview.
-                    captureState = STATE_PEEVIEW
-                } catch (e: CameraAccessException) {
-                    e.printStackTrace()
-                }
-
-                captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(focusArea))
-                captureRequestBuilder?.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(focusArea))
-                captureRequestBuilder?.set(CaptureRequest.CONTROL_AF_MODE,
-                        CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                captureRequestBuilder?.set(CaptureRequest.CONTROL_AF_TRIGGER,
-                        CameraMetadata.CONTROL_AF_TRIGGER_START)
-                captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
-                        CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
-                try {
-                    previewCaptureSession?.setRepeatingRequest(captureRequestBuilder?.build()!!, previewCaptureCallbacks,
-                            backgroundHandler)
-                } catch (e: CameraAccessException) {
-                    e.printStackTrace()
-                }
-
-            }
-            v?.onTouchEvent(event) ?: true
-        }
+//        textureView!!.setOnTouchListener { v, event ->
+//
+//            val pointerId = event.getPointerId(0)
+//            val pointerIndex = event.findPointerIndex(pointerId)
+//            // Get the pointer's current position
+//            // Get the pointer's current position
+//            val x = event.getX(pointerIndex)
+//            val y = event.getY(pointerIndex)
+//
+//            val touchRect = Rect(
+//                    (x - 100).toInt(),
+//                    (y - 100).toInt(),
+//                    (x + 100).toInt(),
+//                    (y + 100).toInt())
+//
+//            if(cameraId != null){
+//                val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
+//                val cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraId!!)
+//                val focusArea = MeteringRectangle(touchRect, MeteringRectangle.METERING_WEIGHT_DONT_CARE)
+//
+//                captureRequestBuilder?.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL)
+//                try {
+//                    previewCaptureSession?.capture(captureRequestBuilder?.build()!!, previewCaptureCallbacks,
+//                            backgroundHandler)
+//                    // After this, the camera will go back to the normal state of preview.
+//                    captureState = STATE_PEEVIEW
+//                } catch (e: CameraAccessException) {
+//                    e.printStackTrace()
+//                }
+//
+//                captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(focusArea))
+//                captureRequestBuilder?.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(focusArea))
+//                captureRequestBuilder?.set(CaptureRequest.CONTROL_AF_MODE,
+//                        CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+//                captureRequestBuilder?.set(CaptureRequest.CONTROL_AF_TRIGGER,
+//                        CameraMetadata.CONTROL_AF_TRIGGER_START)
+//                captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+//                        CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
+//                try {
+//                    previewCaptureSession?.setRepeatingRequest(captureRequestBuilder?.build()!!, previewCaptureCallbacks,
+//                            backgroundHandler)
+//                } catch (e: CameraAccessException) {
+//                    e.printStackTrace()
+//                }
+//
+//            }
+//            v?.onTouchEvent(event) ?: true
+//        }
     }
 
     /**
@@ -215,7 +215,7 @@ class MainActivity : AppCompatActivity() {
 
         override fun onClosed(camera: CameraDevice) {
             super.onClosed(camera)
-//            Toast.makeText(this@MainActivity, "Camera Connection Closed!!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, "Camera Connection Closed!!", Toast.LENGTH_SHORT).show()
 
         }
     }
@@ -229,11 +229,17 @@ class MainActivity : AppCompatActivity() {
 
         override fun onConfigured(captureSession: CameraCaptureSession) {
             previewCaptureSession = captureSession
-            previewCaptureSession?.setRepeatingRequest(
-                    captureRequestBuilder?.build()!!,
-                    null,
-                    backgroundHandler
-            )
+            try {
+                previewCaptureSession?.setRepeatingRequest(
+                        captureRequestBuilder?.build()!!,
+                        null,
+                        backgroundHandler
+                )
+
+            }catch (e:CameraAccessException){
+                e.printStackTrace()
+            }
+
         }
         override fun onConfigureFailed(captureSession: CameraCaptureSession) {
             Toast.makeText(this@MainActivity, "Unable to setup camera preview", Toast.LENGTH_SHORT).show()
